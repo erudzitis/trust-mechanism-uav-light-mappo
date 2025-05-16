@@ -39,7 +39,11 @@ class EnvRunner(Runner):
                 ) = self.collect(step)
 
                 # Obser reward and next obs
+                # print('actions_env', actions_env, 'actions', actions)
                 obs, rewards, dones, infos = self.envs.step(actions_env)
+                # print('rewards', rewards)
+                # print('dones', dones)
+                # print('infos', infos)
 
                 data = (
                     obs,
@@ -197,17 +201,34 @@ class EnvRunner(Runner):
             rnn_states,
             rnn_states_critic,
         ) = data
+        # print('dones', dones)
+        # rnn_states[dones == True] = np.zeros(
+        #     ((dones == True).sum(), self.recurrent_N, self.hidden_size),
+        #     dtype=np.float32,
+        # )
+        # rnn_states_critic[dones == True] = np.zeros(
+        #     ((dones == True).sum(), self.recurrent_N, self.hidden_size),
+        #     dtype=np.float32,
+        # )
+        # masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
+        # masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
 
-        rnn_states[dones == True] = np.zeros(
-            ((dones == True).sum(), self.recurrent_N, self.hidden_size),
-            dtype=np.float32,
-        )
-        rnn_states_critic[dones == True] = np.zeros(
-            ((dones == True).sum(), self.recurrent_N, self.hidden_size),
-            dtype=np.float32,
-        )
+        # Reshape dones properly to match rnn_states dimensions
+        dones_reshaped = dones.reshape(self.n_rollout_threads, self.num_agents)
+        
+        # Reset RNN states for done agents
+        for i in range(self.n_rollout_threads):
+            for j in range(self.num_agents):
+                if dones_reshaped[i][j]:
+                    rnn_states[i, j] = np.zeros((self.recurrent_N, self.hidden_size), dtype=np.float32)
+                    rnn_states_critic[i, j] = np.zeros((self.recurrent_N, self.hidden_size), dtype=np.float32)
+        
         masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-        masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
+        
+        for i in range(self.n_rollout_threads):
+            for j in range(self.num_agents):
+                if dones_reshaped[i][j]:
+                    masks[i, j] = np.zeros(1, dtype=np.float32)
 
         share_obs = []
         for o in obs:

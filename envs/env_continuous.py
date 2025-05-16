@@ -1,5 +1,4 @@
-import gym
-from gym import spaces
+from gymnasium import spaces
 import numpy as np
 from envs.env_core import EnvCore
 
@@ -32,8 +31,8 @@ class ContinuousActionEnv(object):
         for agent in range(self.num_agent):
             # physical action space
             u_action_space = spaces.Box(
-                low=-np.inf,
-                high=+np.inf,
+                low=-1,
+                high=+1,
                 shape=(self.signal_action_dim,),
                 dtype=np.float32,
             )
