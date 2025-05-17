@@ -132,18 +132,27 @@ class EnvRunner(Runner):
 
         for agent_id in range(self.num_agents):
             self.trainer[agent_id].prep_rollout()
+            
+            # Convert numpy arrays to tensors on the correct device
+            share_obs_tensor = torch.FloatTensor(self.buffer[agent_id].share_obs[step]).to(self.device)
+            obs_tensor = torch.FloatTensor(self.buffer[agent_id].obs[step]).to(self.device)
+            rnn_states_tensor = torch.FloatTensor(self.buffer[agent_id].rnn_states[step]).to(self.device)
+            rnn_states_critic_tensor = torch.FloatTensor(self.buffer[agent_id].rnn_states_critic[step]).to(self.device)
+            masks_tensor = torch.FloatTensor(self.buffer[agent_id].masks[step]).to(self.device)
+        
             value, action, action_log_prob, rnn_state, rnn_state_critic = self.trainer[
                 agent_id
             ].policy.get_actions(
-                self.buffer[agent_id].share_obs[step],
-                self.buffer[agent_id].obs[step],
-                self.buffer[agent_id].rnn_states[step],
-                self.buffer[agent_id].rnn_states_critic[step],
-                self.buffer[agent_id].masks[step],
+                share_obs_tensor,
+                obs_tensor,
+                rnn_states_tensor,
+                rnn_states_critic_tensor,
+                masks_tensor
             )
             # [agents, envs, dim]
             values.append(_t2n(value))
             action = _t2n(action)
+            
             # rearrange action
             if self.envs.action_space[agent_id].__class__.__name__ == "MultiDiscrete":
                 for i in range(self.envs.action_space[agent_id].shape):

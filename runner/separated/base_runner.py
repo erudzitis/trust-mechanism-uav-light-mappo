@@ -134,14 +134,23 @@ class Runner(object):
     def compute(self):
         for agent_id in range(self.num_agents):
             self.trainer[agent_id].prep_rollout()
+            # Ensure data is on GPU before getting values
+            share_obs_tensor = torch.FloatTensor(self.buffer[agent_id].share_obs[-1]).to(self.device)
+            rnn_states_critic_tensor = torch.FloatTensor(self.buffer[agent_id].rnn_states_critic[-1]).to(self.device)
+            masks_tensor = torch.FloatTensor(self.buffer[agent_id].masks[-1]).to(self.device)
+            
             next_value = self.trainer[agent_id].policy.get_values(
-                self.buffer[agent_id].share_obs[-1],
-                self.buffer[agent_id].rnn_states_critic[-1],
-                self.buffer[agent_id].masks[-1],
+                share_obs_tensor,
+                rnn_states_critic_tensor,
+                masks_tensor,
             )
             next_value = _t2n(next_value)
             self.buffer[agent_id].compute_returns(next_value, self.trainer[agent_id].value_normalizer)
-
+           
+            # Force synchronization to ensure GPU operations complete
+            if self.device.type == 'cuda':
+                torch.cuda.synchronize()
+                
     def train(self):
         train_infos = []
         for agent_id in range(self.num_agents):

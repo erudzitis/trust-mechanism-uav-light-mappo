@@ -169,7 +169,7 @@ def get_config():
     parser.add_argument("--seed", type=int, default=1, help="Random seed for numpy/torch")
     parser.add_argument(
         "--cuda",
-        action="store_false",
+        action="store_true",
         default=True,
         help="by default True, will use GPU to train; or else will use CPU;",
     )
@@ -301,7 +301,7 @@ def get_config():
     )
     parser.add_argument(
         "--use_recurrent_policy",
-        action="store_false",
+        action="store_true",
         default=False,
         help="use a recurrent policy",
     )
