@@ -52,6 +52,16 @@ class Runner(object):
             self.gif_dir = str(self.run_dir / "gifs")
             if not os.path.exists(self.gif_dir):
                 os.makedirs(self.gif_dir)
+                
+            self.log_dir = str(self.run_dir / "logs")
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
+                
+            self.writter = SummaryWriter(self.log_dir)    
+            
+            self.save_dir = str(self.run_dir / "models")
+            if not os.path.exists(self.save_dir):
+                os.makedirs(self.save_dir)      
         else:
             # if self.use_wandb:
             #     self.save_dir = str(wandb.run.dir)

@@ -330,14 +330,31 @@ class EnvRunner(Runner):
 
     @torch.no_grad()
     def render(self):
-        all_frames = []
+        """Render episodes using trained policies"""
+        print("Starting to render episodes...")
+        
+        # Import imageio if saving gifs
+        if self.all_args.save_gifs:
+            import imageio
+            all_frames = []
+        
         for episode in range(self.all_args.render_episodes):
+            print(f"Rendering episode {episode+1}/{self.all_args.render_episodes}")
             episode_rewards = []
+            
+            # Reset environment
             obs = self.envs.reset()
+            
+            # Capture initial frame
             if self.all_args.save_gifs:
-                image = self.envs.render("rgb_array")[0][0]
-                all_frames.append(image)
-
+                try:
+                    image = self.envs.render("rgb_array")[0]
+                    all_frames.append(image)
+                except Exception as e:
+                    print(f"Error capturing frame: {e}")
+                    continue
+            
+            # Initialize RNN states and masks
             rnn_states = np.zeros(
                 (
                     self.n_rollout_threads,
@@ -348,74 +365,84 @@ class EnvRunner(Runner):
                 dtype=np.float32,
             )
             masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-
+            
+            # Run episode
             for step in range(self.episode_length):
-                calc_start = time.time()
-
+                print(f"  Step {step+1}/{self.episode_length}", end="\r")
+                
+                # Collect actions from all agents
                 temp_actions_env = []
                 for agent_id in range(self.num_agents):
-                    if not self.use_centralized_V:
-                        share_obs = np.array(list(obs[:, agent_id]))
                     self.trainer[agent_id].prep_rollout()
+                    
+                    # Get action from policy
                     action, rnn_state = self.trainer[agent_id].policy.act(
                         np.array(list(obs[:, agent_id])),
                         rnn_states[:, agent_id],
                         masks[:, agent_id],
-                        deterministic=True,
+                        deterministic=True
                     )
-
-                    action = action.detach().cpu().numpy()
-                    # rearrange action
+                    
+                    # Process action based on action space type
+                    action = _t2n(action)
                     if self.envs.action_space[agent_id].__class__.__name__ == "MultiDiscrete":
+                        action_env = np.zeros((self.n_rollout_threads, action.shape[-1]))
                         for i in range(self.envs.action_space[agent_id].shape):
-                            uc_action_env = np.eye(self.envs.action_space[agent_id].high[i] + 1)[action[:, i]]
-                            if i == 0:
-                                action_env = uc_action_env
-                            else:
-                                action_env = np.concatenate((action_env, uc_action_env), axis=1)
+                            action_env[:, i] = action[:, i]
                     elif self.envs.action_space[agent_id].__class__.__name__ == "Discrete":
-                        action_env = np.squeeze(np.eye(self.envs.action_space[agent_id].n)[action], 1)
+                        action_env = np.squeeze(action, axis=-1)
                     else:
-                        raise NotImplementedError
-
+                        # For continuous actions
+                        action_env = action
+                    
                     temp_actions_env.append(action_env)
                     rnn_states[:, agent_id] = _t2n(rnn_state)
-
-                # [envs, agents, dim]
+                
+                # Prepare actions for environment step
                 actions_env = []
                 for i in range(self.n_rollout_threads):
-                    one_hot_action_env = []
+                    agent_actions = []
                     for temp_action_env in temp_actions_env:
-                        one_hot_action_env.append(temp_action_env[i])
-                    actions_env.append(one_hot_action_env)
-
-                # Obser reward and next obs
+                        agent_actions.append(temp_action_env[i])
+                    actions_env.append(agent_actions)
+                
+                # Step environment
                 obs, rewards, dones, infos = self.envs.step(actions_env)
                 episode_rewards.append(rewards)
-
+                
+                # Update RNN states for done agents
                 rnn_states[dones == True] = np.zeros(
                     ((dones == True).sum(), self.recurrent_N, self.hidden_size),
                     dtype=np.float32,
                 )
                 masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
                 masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
-
+                
+                # Render current frame
                 if self.all_args.save_gifs:
-                    image = self.envs.render("rgb_array")[0][0]
-                    all_frames.append(image)
-                    calc_end = time.time()
-                    elapsed = calc_end - calc_start
-                    if elapsed < self.all_args.ifi:
-                        time.sleep(self.all_args.ifi - elapsed)
-
+                    try:
+                        image = self.envs.render("rgb_array")[0]
+                        all_frames.append(image)
+                    except Exception as e:
+                        print(f"Error capturing frame: {e}")
+                else:
+                    self.envs.render("human")
+                
+                # Break if all agents are done
+                if np.all(dones):
+                    break
+            
+            # Print episode results
             episode_rewards = np.array(episode_rewards)
             for agent_id in range(self.num_agents):
                 average_episode_rewards = np.mean(np.sum(episode_rewards[:, :, agent_id], axis=0))
-                print("eval average episode rewards of agent%i: " % agent_id + str(average_episode_rewards))
-
-        if self.all_args.save_gifs:
-            imageio.mimsave(
-                str(self.gif_dir) + "/render.gif",
-                all_frames,
-                duration=self.all_args.ifi,
-            )
+                print(f"  Agent {agent_id} average reward: {average_episode_rewards:.2f}")
+        
+        # Save gif if requested
+        if self.all_args.save_gifs and all_frames:
+            print(f"Saving {len(all_frames)} frames as gif...")
+            gif_path = os.path.join(self.run_dir, 'gifs', f"episode_{episode}.gif")
+            imageio.mimsave(gif_path, all_frames, duration=self.all_args.ifi)
+            print(f"Gif saved to {gif_path}")
+        
+        print("Rendering complete!")
